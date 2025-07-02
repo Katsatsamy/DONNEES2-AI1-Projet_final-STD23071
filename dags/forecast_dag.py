@@ -22,7 +22,7 @@ default_args = {
 }
 
 # Liste des villes à traiter
-CITIES = ['Paris', 'Rome', 'Tokyo']
+CITIES = ['Paris', 'Rome', 'Tokyo', 'Antananarivo', 'Mahajanga','Quebec']
 
 with DAG(
     dag_id='forecast_weather_pipeline',
