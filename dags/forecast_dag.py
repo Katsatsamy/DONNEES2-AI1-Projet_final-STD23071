@@ -11,6 +11,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime
 from extraction import fetch_forecast
+from extraction import fetch_historical_weather
 from merge import merge_forecast_files
 from transform import transform_forecast_to_scores
 
@@ -31,6 +32,16 @@ with DAG(
     catchup=False,
     max_active_runs=1,
 ) as dag:
+    
+        # ========= Tâches d'extraction historique =========
+    historical_extract_tasks = [
+        PythonOperator(
+            task_id=f'fetch_historical_{city.lower()}',
+            python_callable=fetch_historical_weather,
+            op_args=[city, "{{ var.value.API_KEY_VISUAL_CROSSING }}"],
+        )
+        for city in CITIES
+    ]
 
     # ========= Tâches d'extraction (prévisions météo par ville) =========
     extract_tasks = [
@@ -55,4 +66,8 @@ with DAG(
     )
 
     # ========= Dépendances entre tâches =========
+    for hist_task, extract_task in zip(historical_extract_tasks, extract_tasks):
+        hist_task >> extract_task
     extract_tasks >> merge_task >> transform_task
+
+

@@ -1,4 +1,5 @@
 import requests
+import pandas as pd
 import os
 from datetime import datetime
 
@@ -55,4 +56,58 @@ def fetch_forecast(city: str, api_key: str) -> bool:
         return True
     else:
         print(f"Erreur lors de la récupération météo pour {city} : {response.status_code}")
+        return False
+
+def fetch_historical_weather(city: str, api_key: str = None) -> bool:
+    """
+    Récupère les données historiques météo pour une ville via Open-Meteo (pas besoin de clé API).
+    Sauvegarde les données dans un fichier CSV.
+    """
+
+    coords = {
+        "Paris": (48.8566, 2.3522),
+        "Rome": (41.9028, 12.4964),
+        "Tokyo": (35.6895, 139.6917),
+        "Antananarivo": (-18.8792, 47.5079),
+        "Mahajanga": (-15.7167, 46.3167),
+        "Quebec": (46.8139, -71.2080),
+    }
+
+    if city not in coords:
+        print(f"Ville inconnue : {city}")
+        return False
+
+    lat, lon = coords[city]
+    start_date = "2024-06-30"
+    end_date = datetime.today().strftime('%Y-%m-%d')
+
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive?"
+        f"latitude={lat}&longitude={lon}"
+        f"&start_date={start_date}&end_date={end_date}"
+        f"&daily=temperature_2m_max,precipitation_sum,windspeed_10m_max"
+        f"&timezone=auto"
+    )
+
+    print(f"[{city}] URL : {url}")
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        json_data = response.json()
+        days = json_data.get("daily", {})
+        if not days:
+            print(f"Aucune donnée historique pour {city}")
+            return False
+
+        df = pd.DataFrame(days)
+        df["city"] = city
+
+        output_dir = os.path.join(ROOT_DIR, "data", "raw", "historical_meteo")
+        os.makedirs(output_dir, exist_ok=True)
+
+        df.to_csv(os.path.join(output_dir, f"historical_{city}.csv"), index=False)
+        print(f"✔ Données historiques sauvegardées pour {city}")
+        return True
+    else:
+        print(f"Erreur Open-Meteo pour {city} : {response.status_code}")
         return False

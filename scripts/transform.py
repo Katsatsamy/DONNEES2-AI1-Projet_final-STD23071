@@ -8,54 +8,66 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 
 def transform_forecast_to_scores() -> str:
-    # Fichier CSV fusionné en entrée
-    input_file = os.path.join(ROOT_DIR, "data", "processed", "forecast_meteo_global.csv")
+    # Fichier CSV de prévisions
+    forecast_file = os.path.join(ROOT_DIR, "data", "processed", "forecast_meteo_global.csv")
 
-    # Fichier CSV de sortie avec les scores météo calculés
+    # Dossier des historiques
+    historical_dir = os.path.join(ROOT_DIR, "data", "raw", "historical_meteo")
+
+    # Fichier de sortie
     output_file = os.path.join(ROOT_DIR, "data", "processed", "scores_meteo_global.csv")
 
-    # Chargement du fichier CSV fusionné dans un DataFrame
-    df = pd.read_csv(input_file)
+    # === Lecture des prévisions ===
+    forecast_df = pd.read_csv(forecast_file)
+    forecast_df["datetime"] = pd.to_datetime(forecast_df["datetime"])
+    forecast_df["date"] = forecast_df["datetime"].dt.date
+    forecast_df["source"] = "forecast"
 
-    # Convertit la colonne datetime en type datetime pandas
-    df["datetime"] = pd.to_datetime(df["datetime"])
+    # === Lecture des historiques ===
+    historical_dfs = []
+    for file in os.listdir(historical_dir):
+        if file.endswith(".csv") and file.startswith("historical_"):
+            path = os.path.join(historical_dir, file)
+            df = pd.read_csv(path)
+            city = file.replace("historical_", "").replace(".csv", "")
+            df["ville"] = city
+            df.rename(columns={
+                "time": "date",
+                "temperature_2m_max": "temp",
+                "precipitation_sum": "rain",
+                "windspeed_10m_max": "wind_speed"
+            }, inplace=True)
+            df["source"] = "historical"
+            historical_dfs.append(df[["date", "temp", "rain", "wind_speed", "ville", "source"]])
 
-    # Crée une nouvelle colonne date (sans l'heure) à partir de datetime
-    df["date"] = df["datetime"].dt.date
+    historical_df = pd.concat(historical_dfs, ignore_index=True) if historical_dfs else pd.DataFrame()
 
-    # Fonction qui calcule un score météo pour une ligne donnée
+    # === Préparation des prévisions ===
+    forecast_df = forecast_df[["date", "temp", "rain", "wind_speed", "ville", "source"]]
+
+    # === Fusion des deux ===
+    combined_df = pd.concat([forecast_df, historical_df], ignore_index=True)
+
+    # Calcul du score météo
     def compute_score(row):
         score = 0
-        # Température agréable entre 22 et 28°C → +1
-        if 22 <= row["temp"] <= 28:
+        if pd.notna(row["temp"]) and 22 <= row["temp"] <= 28:
             score += 1
-        # Peu ou pas de pluie → +1
-        if row["rain"] < 1:
+        if pd.notna(row["rain"]) and row["rain"] < 1:
             score += 1
-        # Vitesse du vent faible → +1
-        if row["wind_speed"] < 5:
+        if pd.notna(row["wind_speed"]) and row["wind_speed"] < 5:
             score += 1
         return score
 
-    # Applique la fonction compute_score à chaque ligne du DataFrame
-    df["score"] = df.apply(compute_score, axis=1)
+    combined_df["score"] = combined_df.apply(compute_score, axis=1)
 
-    # Regroupe par ville et date, calcule la moyenne des scores
-    score_df = df.groupby(["ville", "date"])["score"].mean().reset_index()
-
-    # Renomme la colonne score moyenne
+    # Moyenne par ville et date
+    score_df = combined_df.groupby(["ville", "date"])["score"].mean().reset_index()
     score_df.rename(columns={"score": "avg_score"}, inplace=True)
-
-    # Arrondit à 2 décimales
     score_df["avg_score"] = score_df["avg_score"].round(2)
 
-    # Création du dossier de sortie s'il n'existe pas
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
-    # Sauvegarde des scores dans le fichier de sortie
     score_df.to_csv(output_file, index=False)
 
-    print(f"Scores météo journaliers enregistrés dans {output_file}")
-
-    # Renvoie le chemin du fichier des scores
+    print(f"✅ Scores météo journaliers enregistrés dans {output_file}")
     return output_file
